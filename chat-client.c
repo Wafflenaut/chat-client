@@ -1,3 +1,11 @@
+//Chat-Client
+//Oregon State University - CS372 - By John Moyer
+//This chat-client connects to a chat-server, allowing the passing of messages between the
+//client and server.
+//Compile using gcc chat-client.c -o chat-client
+//Run using chat-client <server address> <server port>
+//Full documentation in the README.txt
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
