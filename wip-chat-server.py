@@ -4,21 +4,26 @@ import sys
 #Parameters: A socket matched up with a client
 #Function: Confirms valid connection with a client, indicates that data is correctly being communicated
 #Output: True if expected client message was received, false if not
-def handshake(clientSocket):
+def handshake(clientSocket, serverHandle):
     serverConfirm = 'server-372'
     serverConfirm = serverConfirm.encode()
-    print("Server Confirm: " + str(serverConfirm))
 
     clientConfirm = clientSocket.recv(1024)
     clientConfirm = clientConfirm.decode('utf8')
-    print("Client Confirm: " + clientConfirm)
 
     if(clientConfirm == 'client-372'):
         clientSocket.send(serverConfirm)
 
-        return True
+        tempHandle = clientSocket.recv(256)
+        tempHandle = tempHandle.decode('utf8')
+        clientHandle = tempHandle
+
+        tempHandle = serverHandle.encode()
+        clientSocket.send(tempHandle)
+
+        return clientHandle
     else:
-        return False
+        return ''
 
 #Parameters: An outgoing message (string)
 #Function: Verifies if a message is of the correct length (0 - 500)
@@ -35,8 +40,6 @@ def verifyMessage(outgoingMessage):
 def receiveMessage(clientSocket):
     incomingMessage = clientSocket.recv(1024)
     incomingMessage = incomingMessage.decode('utf8')
-    #incomingMessage = incomingMessage[:-1] #don't believe stripping out \0 is necessary with decode
-    print(incomingMessage)
 
     return incomingMessage
 
@@ -45,7 +48,6 @@ def receiveMessage(clientSocket):
 #Output: Returns True if valid message sent, returns false if /quit received
 def sendMessage(clientSocket, serverHandle):
     validMessage = False
-    #print(serverHandle + "> ", end='')
     while(not validMessage):
         outgoingMessage = input(serverHandle + "> ")
         if(outgoingMessage == '\quit'):
@@ -54,8 +56,6 @@ def sendMessage(clientSocket, serverHandle):
             return False
 
         if(verifyMessage(outgoingMessage)):
-            #outgoingMessage += '\0'
-
             outgoingMessage = serverHandle + "> " + outgoingMessage
             outgoingMessage = outgoingMessage.encode()
             clientSocket.send(outgoingMessage)
@@ -67,9 +67,11 @@ def sendMessage(clientSocket, serverHandle):
 #Parameters: socket with client, serverHandle
 #Function: Alternate receiving/sending messages from/to a client
 #Output: None
-def establishChatSession(clientSocket, serverHandle):
+def establishChatSession(clientSocket, serverHandle, clientHandle):
     sessionActive = True
     waitingOnMessage = True
+
+    print("Now chatting with " + clientHandle)
 
     while(sessionActive):
         #If waiting on message, receive a message
@@ -78,8 +80,8 @@ def establishChatSession(clientSocket, serverHandle):
 
             #If quit is received, end the session
             if(incomingMessage == '\quit'):
-                print("Attempting to quit")
                 sessionActive = False
+
                 return True
             else:
                 print(incomingMessage)
@@ -95,30 +97,23 @@ def establishChatSession(clientSocket, serverHandle):
 if(len(sys.argv) != 2):
     print('Server port must be passed in via argument, e.g. \'python3 chat-server.py 21012\'')
 else:
-    serverAddress = 'localhost'
     serverPort = int(sys.argv[1])
     serverSocket = socket(AF_INET, SOCK_STREAM)
     serverHandle = 'Calculon'
+    clientHandle = ''
 
-    serverSocket.bind((serverAddress, serverPort))
+    serverSocket.bind(('', serverPort))
     serverSocket.listen(1)
     print('Server listening for connection on port: ' + str(serverPort))
 
     while True:
         clientSocket, address = serverSocket.accept()
 
-        if(handshake(clientSocket)):
-            establishChatSession(clientSocket, serverHandle)
-            print('Ended chat session')
+        clientHandle = handshake(clientSocket, serverHandle)
+        if(clientHandle != ''):
+            establishChatSession(clientSocket, serverHandle, clientHandle)
+            print("Ending chat with " + clientHandle)
         else:
             print("Invalid Client")
 
         clientSocket.close()
-
-        #message = clientSocket.recv(1024)
-        #message = message.decode('utf8')
-        #print(message)
-
-        #outgoingMessage = "This is the server, bro"
-        #outgoingMessage = outgoingMessage.encode('ascii', 'ignore')
-        #clientSocket.send(outgoingMessage)

@@ -43,24 +43,28 @@ void getMessage(int serverFD, char* message){
 
 //Parameters: Socket and client's handle
 //Function:  Confirms connection, receives server's handle, sends client's handle
+//	This servers as the 'initial message' prior to user input message
 //Output:  Sends client's handle
-int handshake(int serverFD){
+int handshake(int serverFD, char* clientHandle, char* serverHandle){
 	char message[messageBuffer];
 	
 	//sends client-message to server
 	memset(message, '\0', sizeof(message));
 	strcpy(message, "client-372");
-	//printf("\nClient's Confirm: \n");
-	//printf("%s\n", message);
 	sendMessage(serverFD, message);
 	
 	//receives server-message
 	memset(message, '\0', sizeof(message));
 	getMessage(serverFD, message);
-	//printf("Server's Confirm: \n");
-	//printf("%s\n", message);
 	
 	if(strcmp(message, "server-372") == 0){
+		memset(message, '\0', sizeof(message));
+		strcpy(message, clientHandle);
+		sendMessage(serverFD, message);
+		
+		memset(message, '\0', sizeof(message));
+		getMessage(serverFD, message);
+		strcpy(serverHandle, message);
 		return true;
 	}
 	else{
@@ -72,7 +76,7 @@ int handshake(int serverFD){
 //Parameters: socket and client-handle
 //Function: Initiates a chat session of alternating client/server chat messages
 //Output:  Outputs received chat messages
-int initiateChatSession(int serverFD, char* handle){
+int initiateChatSession(int serverFD, char* clientHandle, char* serverHandle){
 	int sessionActive = true;
 	int waitingOnMessage = false;
 	int validMessage = false;
@@ -81,11 +85,11 @@ int initiateChatSession(int serverFD, char* handle){
 	
 	memset(message, '\0', sizeof(message));
 	
-	printf("Starting the chat session");
+	printf("Starting the chat session with %s\n", serverHandle);
 	
 	while(sessionActive){
 		if(waitingOnMessage){
-			
+			memset(message, '\0', sizeof(message));
 			getMessage(serverFD, message);
 			if(strcmp(message, "\\quit") == 0){
 				sessionActive = false;
@@ -94,7 +98,6 @@ int initiateChatSession(int serverFD, char* handle){
 			else{
 				printf("%s\n", message);
 				waitingOnMessage = false;
-				printf("\nNow sending a message\n");
 			}
 		}
 		else{
@@ -103,7 +106,7 @@ int initiateChatSession(int serverFD, char* handle){
 			validMessage = false;
 			while(!validMessage){
 				memset(message, '\0', sizeof(message)); // Clear out the buffer array
-				printf("%s> ", handle);
+				printf("%s> ", clientHandle);
 				fgets(message, sizeof(message) - 1, stdin); // Get input from the user, trunc to buffer - 1 chars, leaving \0
 				message[strcspn(message, "\n")] = '\0'; // Remove the trailing \n that fgets adds
 				
@@ -115,16 +118,16 @@ int initiateChatSession(int serverFD, char* handle){
 				}
 				
 				if(strlen(message) > 500 || strlen(message) < 0){
-					printf("Messages must be from 0 to 500 characters.  Please enter a valid message.");
+					printf("Messages must be from 0 to 500 characters.  Please enter a valid message.\n");
 				}
 				else{
-					//Construct the outgoing message with handle
+					//Construct the outgoing message with client handle
 					memset(tempMessage, '\0', sizeof(tempMessage)); // Clear out the buffer array
-					strcpy(tempMessage, handle);
+					strcpy(tempMessage, clientHandle);
 					strcat(tempMessage, "> ");
 					strcat(tempMessage, message);
 					sendMessage(serverFD, tempMessage);
-					printf("\nNow waiting on message\n");
+
 					waitingOnMessage = true;
 					validMessage = true;
 				}
@@ -166,7 +169,7 @@ void getHandle(char* handle){
 			validHandle = true;
 		}
 	}
-	printf("The handle is %s\n", handleInput);
+
 	//tokenize the string prior to the newline character
     token = strtok(handleInput, "\n");
 
@@ -187,14 +190,13 @@ int main(int argc, char *argv[])
 	struct sockaddr_in serverAddress;
 	struct hostent* serverHostInfo;
 	char buffer[messageBuffer];
-	char handle[smallBuffer];
+	char clientHandle[smallBuffer];
+	char serverHandle[smallBuffer];
 	
-	memset(&handle, '\0', sizeof(handle));
+	memset(&clientHandle, '\0', sizeof(clientHandle));
+	memset(&serverHandle, '\0', sizeof(serverHandle));
     
 	if (argc < 3) { fprintf(stderr,"USAGE: %s hostname port\n", argv[0]); exit(0); } // Check usage & args
-	
-	getHandle(handle);
-	printf("The handle is %s\n", handle);
 	
 	// Set up the server address struct
 	memset((char*)&serverAddress, '\0', sizeof(serverAddress)); // Clear out the address struct
@@ -213,35 +215,17 @@ int main(int argc, char *argv[])
 	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
 		error("CLIENT: ERROR connecting");
 		
-	validHandshake = handshake(socketFD);
-	if(validHandshake == true){
-		printf("Handshake Good\n");
+	getHandle(clientHandle);
 		
-	}
-	else{
-		printf("Handshake Failed\n");
+	validHandshake = handshake(socketFD, clientHandle, serverHandle);
+	if(validHandshake == false){
+		printf("Handshake Failed - Invalid Server\n");
 		exit(1);
 	}
 	
-	initiateChatSession(socketFD, handle);
-/*
-	// Get input message from user
-	printf("CLIENT: Enter text to send to the server, and then hit enter: ");
-	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer array
-	fgets(buffer, sizeof(buffer) - 1, stdin); // Get input from the user, trunc to buffer - 1 chars, leaving \0
-	buffer[strcspn(buffer, "\n")] = '\0'; // Remove the trailing \n that fgets adds
+	initiateChatSession(socketFD, clientHandle, serverHandle);
 
-	// Send message to server
-	charsWritten = send(socketFD, buffer, strlen(buffer), 0); // Write to the server
-	if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-	if (charsWritten < strlen(buffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
-
-	// Get return message from server
-	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
-	charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); // Read data from the socket, leaving \0 at end
-	if (charsRead < 0) error("CLIENT: ERROR reading from socket");
-	printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
-*/
+	printf("Ending chat with %s and exiting.\n", serverHandle);
 	close(socketFD); // Close the socket
 
 	return 0;
